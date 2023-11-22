@@ -1,5 +1,6 @@
 import os
-from importlib import util, import_module
+import sys
+from importlib import import_module
 import click
 
 
@@ -15,61 +16,61 @@ class TreeCommands:
         pass
 
     def load_commands(self):
+        # Get the current working directory
+        current_directory = os.getcwd()
+
+        # Add the current directory to sys.path
+        sys.path.append(current_directory)
+
         # Iterate over subdirectories in the specified folder
-        folder_path = os.path.join(os.getcwd(), "cli")
+        folder_path = os.path.join(current_directory, "cli")
 
         for item in os.listdir(folder_path):
             if not item.startswith("__") and os.path.isdir(
                 os.path.join(folder_path, item)
             ):
                 # Form the module path using the directory name
-                module_path = os.path.join(folder_path, item, "__init__.py")
+                module_path = f"cli.{item}"
 
-                # Check if the module path exists
-                if os.path.exists(module_path):
-                    # Create a spec for the module
-                    spec = util.spec_from_file_location(f"cli.{item}", module_path)
+                try:
+                    # Import the module
+                    module = import_module(module_path)
 
-                    # Check if the spec is not None before creating the module
-                    if spec is not None:
-                        module = util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        # Now, 'module' contains the imported module
-                        # You can use 'module' as needed
+                    # Check if the module has a 'cli' attribute with a 'name' attribute
+                    command = getattr(module, item, None)
 
-                        # Check if the module has a 'cli' attribute with a 'name' attribute
-                        command = getattr(module, item, None)
+                    # Load subcommands
+                    for file in os.listdir(os.path.join(folder_path, item)):
+                        if not file.startswith("__") and file.endswith(".py"):
+                            subcommand_name = file[:-3]  # Remove the ".py" extension
+                            subcommand_path = f"cli.{item}.{subcommand_name}"
 
-                        # Load subcommands
-                        for file in os.listdir(os.path.join(folder_path, item)):
-                            if not file.startswith("__") and file.endswith(".py"):
-                                subcommand_name = file[:-3]  # Remove the ".py" extension
-                                subcommand_path = os.path.join(folder_path, item, file)
+                            try:
+                                # Import the subcommand module
+                                subcommand_module = import_module(subcommand_path)
 
-                                try:
-                                    # Import the subcommand module
-                                    subcommand_module = import_module(f"cli.{item}.{subcommand_name}")
+                                # Find the subcommand function
+                                subcommand_func = getattr(subcommand_module, subcommand_name, None)
 
-                                    # Find the subcommand function
-                                    subcommand_func = getattr(subcommand_module, subcommand_name, None)
+                                if subcommand_func is not None:
+                                    command.add_command(subcommand_func)
+                                else:
+                                    print(f"Subcommand function not found in {subcommand_path}")
 
-                                    if subcommand_func is not None:
-                                        print(f"Subcommand: {subcommand_name}, Path: {subcommand_path}, Module: {subcommand_module}, Command: {subcommand_func}")
-                                        command.add_command(subcommand_func)
-                                    else:
-                                        print(f"Subcommand function not found in {subcommand_path}")
+                                    # Print the content of the subcommand module
+                                    print(f"Subcommand Module Content: {dir(subcommand_module)}")
 
-                                        # Print the content of the subcommand module
-                                        print(f"Subcommand Module Content: {dir(subcommand_module)}")
+                            except ImportError as e:
+                                print(f"Error importing module {subcommand_path}: {e}")
 
-                                except ImportError as e:
-                                    print(f"Error importing module {subcommand_path}: {e}")
+                    # Add the command to the main group (cli)
+                    self.cli.add_command(command)
 
-                        # Add the command to the main group (cli)
-                        self.cli.add_command(command)
+                except ImportError as e:
+                    print(f"Error importing module {module_path}: {e}")
 
-                    else:
-                        print(f"Spec is None for {item}")
+        # Remove the current directory from sys.path to avoid interference
+        sys.path.remove(current_directory)
 
 
 if __name__ == "__main__":
